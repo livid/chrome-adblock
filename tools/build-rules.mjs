@@ -39,6 +39,8 @@ function rulesetFor(url, fallback) {
 
 const PRIORITY = { BLOCK: 1, ALLOW: 2, BLOCK_IMPORTANT: 3, ALLOW_IMPORTANT: 4, CLEAN: 5, CLEAN_SITE: 6, CLEAN_SKIP: 7 };
 
+const NON_BLOCK_ID_BASE = 1_000_000; // keep in step with background.js
+
 const ALL_TYPES = [
   "main_frame", "sub_frame", "stylesheet", "script", "image", "font", "object",
   "xmlhttprequest", "ping", "media", "websocket", "webtransport", "other",
@@ -305,7 +307,10 @@ class Ruleset {
       out.push({ priority: g.priority, action: { type: g.action }, condition: { ...g.cond, requestDomains: g.hosts } });
     }
     out.push(...this.rules);
-    return out.map((r, i) => ({ id: i + 1, ...r }));
+    // Blocking rules are numbered from 1 and everything else from NON_BLOCK_ID_BASE, so
+    // background.js can tell from a matched rule's id alone whether a request was stopped.
+    let blocks = 0, others = 0;
+    return out.map((r) => ({ id: r.action.type === "block" ? ++blocks : NON_BLOCK_ID_BASE + ++others, ...r }));
   }
 }
 

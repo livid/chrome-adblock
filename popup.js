@@ -33,6 +33,17 @@ function renderLists(feeds) {
   el.classList.toggle("error", failed);
 }
 
+function formatBytes(n) {
+  if (n < 1e6) return `${Math.round(n / 1e3)} KB`;
+  if (n < 1e9) return `${(n / 1e6).toFixed(n < 1e8 ? 1 : 0)} MB`;
+  return `${(n / 1e9).toFixed(n < 1e11 ? 2 : 0)} GB`;
+}
+
+function renderTotals(stats) {
+  $("totalBlocked").textContent = (stats?.blocked || 0).toLocaleString();
+  $("totalSaved").textContent = "≈ " + formatBytes(stats?.bytes || 0);
+}
+
 async function render() {
   const { settings, allowlist, feeds } = await getState();
 
@@ -65,6 +76,13 @@ async function init() {
   } catch {}
 
   await render();
+
+  // Totals are counted from per-match events, which Chrome only gives unpacked installs.
+  if (chrome.declarativeNetRequest.onRuleMatchedDebug) {
+    renderTotals((await chrome.storage.local.get("stats")).stats);
+  } else {
+    $("totals").hidden = true;
+  }
 
   if (tab && host) {
     const text = await chrome.action.getBadgeText({ tabId: tab.id }).catch(() => "");
@@ -101,6 +119,7 @@ async function init() {
 
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.feeds) renderLists(changes.feeds.newValue || {});
+    if (changes.stats) renderTotals(changes.stats.newValue);
   });
 }
 

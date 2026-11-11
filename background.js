@@ -208,6 +208,50 @@ chrome.webNavigation.onCommitted.addListener(
   { url: [{ schemes: ["http", "https"] }] }
 );
 
+// ---- lifetime totals shown in the popup header
+
+// Chrome never reports the size of a request that didn't load, so "data saved" is an
+// estimate: a typical transfer size, in bytes, for a blocked request of each type.
+const TYPICAL_BYTES = {
+  script: 30_000, sub_frame: 15_000, image: 8_000, stylesheet: 10_000, font: 25_000,
+  media: 300_000, object: 10_000, xmlhttprequest: 2_000, ping: 1_000, websocket: 1_000,
+  webtransport: 1_000, other: 2_000, main_frame: 0,
+};
+const NON_BLOCK_ID_BASE = 1_000_000; // keep in step with tools/build-rules.mjs
+const STOPPING_DYNAMIC_RULES = new Set([RULE.THREAT_PAGE, RULE.THREAT_REQUEST, RULE.AD_FEED]);
+
+function isStop({ ruleId, rulesetId }) {
+  if (rulesetId === "_dynamic") return STOPPING_DYNAMIC_RULES.has(ruleId);
+  if (rulesetId === "_session" || rulesetId === "clean-urls") return false;
+  return ruleId < NON_BLOCK_ID_BASE; // static rulesets: exceptions are numbered above the base
+}
+
+let pendingStats = { blocked: 0, bytes: 0 };
+let statsTimer = null;
+let statsWrite = Promise.resolve();
+
+function flushStats() {
+  statsTimer = null;
+  const add = pendingStats;
+  pendingStats = { blocked: 0, bytes: 0 };
+  statsWrite = statsWrite
+    .then(async () => {
+      const { stats } = await chrome.storage.local.get({ stats: { blocked: 0, bytes: 0 } });
+      await chrome.storage.local.set({
+        stats: { blocked: stats.blocked + add.blocked, bytes: stats.bytes + add.bytes },
+      });
+    })
+    .catch((e) => console.error("Shield: saving totals failed", e));
+}
+
+// Per-match events exist only for unpacked installs; elsewhere the totals are simply not kept.
+chrome.declarativeNetRequest.onRuleMatchedDebug?.addListener(({ request, rule }) => {
+  if (!isStop(rule)) return;
+  pendingStats.blocked++;
+  pendingStats.bytes += TYPICAL_BYTES[request.type] ?? 2_000;
+  statsTimer ??= setTimeout(flushStats, 1000); // one write per burst of blocked requests
+});
+
 async function updateFeeds() {
   const { feeds } = await getState();
   await Promise.all(
