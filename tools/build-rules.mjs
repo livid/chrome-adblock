@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CACHE = path.join(ROOT, "tools", ".cache");
+const CUSTOM_FILTERS = path.join(ROOT, "tools", "custom-filters.txt"); // our own additions
 
 const CATALOG_URL =
   "https://raw.githubusercontent.com/brave/adblock-resources/master/filter_lists/list_catalog.json";
@@ -410,6 +411,12 @@ async function main() {
   console.log(`Downloading ${sources.length} filter lists…`);
   const texts = [];
   for (const s of sources) texts.push(await fetchText(s.url));
+
+  const custom = await readFile(CUSTOM_FILTERS, "utf8").catch(() => null);
+  if (custom != null) {
+    sources.push({ url: CUSTOM_FILTERS, ruleset: "ads" });
+    texts.push(custom);
+  }
 
   const network = [];
   const badfilters = new Set();
