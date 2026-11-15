@@ -54,6 +54,10 @@ const TYPE_OPTIONS = {
   document: "main_frame", doc: "main_frame",
 };
 const HIDE_EXCEPTION_OPTIONS = new Set(["generichide", "ghide", "elemhide", "ehide"]);
+// Brave's lists block social widgets everywhere, then use "$tag=" exceptions to let
+// embedded posts back in. Each tag is a switch in Brave's social media settings; these
+// are the ones Brave turns on by default. LinkedIn embeds ("linked-in-embeds") stay off.
+const ENABLED_TAGS = new Set(["fb-embeds", "twitter-embeds"]);
 
 const DOMAIN_RE = /^(?=.{3,253}$)(?:[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/;
 const IPV4_RE = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
@@ -237,6 +241,7 @@ function parseNetworkFilter(line) {
       cond.excludedRequestDomains = d.include;
     } else if (name === "match-case") cond.isUrlFilterCaseSensitive = true;
     else if (name === "important") important = true;
+    else if (name === "tag") { if (!ENABLED_TAGS.has(value)) return null; }
     else if (name === "_") continue;
     else if (exception && HIDE_EXCEPTION_OPTIONS.has(name)) hideException = true;
     else return null; // redirect, csp, removeparam, popup, ... have no safe DNR equivalent here
