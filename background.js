@@ -49,6 +49,9 @@ const DEFAULT_SETTINGS = { ads: true, threats: true, cosmetic: true, cleanUrls: 
 // Sites left alone out of the box. They appear as "paused" in the popup and can be switched back on.
 const DEFAULT_PAUSED_SITES = ["youtube.com", "youtube-nocookie.com"]; // the second serves embedded players
 const GENERIC_COSMETIC_ID = "generic-cosmetic";
+const ADSHIELD_ID = "adshield";
+// Sites that load Ad-Shield, which puts back the ads Shield blocks (see content/adshield.js).
+const ADSHIELD_SITES = ["fandom.com"];
 const WEB_PAGES = ["http://*/*", "https://*/*"];
 const WARNING_PAGE = chrome.runtime.getURL("blocked.html");
 
@@ -161,20 +164,36 @@ async function doApplyRules() {
     disableRulesetIds: Object.keys(wanted).filter((id) => !wanted[id]),
   });
 
-  await syncGenericCosmetics(state);
+  await syncContentScripts(state);
 }
 
 const loadJson = (file) => fetch(chrome.runtime.getURL(file)).then((r) => r.json());
 const isPaused = (host, allowlist) => allowlist.some((d) => host === d || host.endsWith("." + d));
+const patterns = (hosts) =>
+  hosts.flatMap((h) => (IPV4_RE.test(h) ? [`*://${h}/*`] : [`*://${h}/*`, `*://*.${h}/*`]));
+
+// Content scripts are registered rather than declared in the manifest, so they follow the
+// settings and stay off paused sites. Registered scripts apply before the page runs any
+// code, without waking this worker.
+async function syncContentScripts({ settings, allowlist }) {
+  await chrome.scripting.unregisterContentScripts().catch(() => {});
+  if (!settings.ads) return;
+
+  await chrome.scripting.registerContentScripts([
+    {
+      id: ADSHIELD_ID,
+      js: ["content/adshield.js"],
+      matches: patterns(ADSHIELD_SITES),
+      excludeMatches: patterns(allowlist),
+      runAt: "document_start",
+    },
+  ]);
+  if (settings.cosmetic) await registerGenericCosmetics(allowlist);
+}
 
 // Generic element hiding is a registered stylesheet, so it applies before the page
-// paints and without waking this worker. Paused sites and sites the lists exempt are excluded.
-async function syncGenericCosmetics({ settings, allowlist }) {
-  await chrome.scripting.unregisterContentScripts({ ids: [GENERIC_COSMETIC_ID] }).catch(() => {});
-  if (!settings.ads || !settings.cosmetic) return;
-
-  const patterns = (hosts) =>
-    hosts.flatMap((h) => (IPV4_RE.test(h) ? [`*://${h}/*`] : [`*://${h}/*`, `*://*.${h}/*`]));
+// paints. Paused sites and sites the lists exempt are excluded.
+async function registerGenericCosmetics(allowlist) {
   const script = { id: GENERIC_COSMETIC_ID, css: ["cosmetic/generic.css"], matches: WEB_PAGES, runAt: "document_start" };
   const exempt = await loadJson("cosmetic/no-generic.json").catch(() => []);
   try {
